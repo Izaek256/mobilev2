@@ -1,7 +1,7 @@
 """Send Money Use Case - Inbound port interface."""
 
 from abc import ABC, abstractmethod
-from src.domain.port.in.send_money_command import SendMoneyCommand
+from src.domain.port.inbound.send_money_command import SendMoneyCommand
 
 
 class SendMoneyUseCase(ABC):

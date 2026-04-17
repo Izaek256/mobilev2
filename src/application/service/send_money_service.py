@@ -4,8 +4,8 @@ from uuid import uuid4
 from src.domain.model.money import Money
 from src.domain.model.transaction import Transaction
 from src.domain.model.enums import TransactionType, TransactionStatus
-from src.domain.port.in.send_money_command import SendMoneyCommand
-from src.domain.port.in.send_money_use_case import SendMoneyUseCase
+from src.domain.port.inbound.send_money_command import SendMoneyCommand
+from src.domain.port.inbound.send_money_use_case import SendMoneyUseCase
 from src.domain.port.out.repositories import (
     AccountRepository,
     TransactionRepository,

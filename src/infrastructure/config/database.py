@@ -11,8 +11,8 @@ load_dotenv()
 # Base class for ORM models
 Base = declarative_base()
 
-# Database URL - defaults to PostgreSQL with asyncpg driver
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql+asyncpg://postgres:password@localhost:5432/distributed_ledger")
+# Database URL - defaults to PostgreSQL with psycopg2 driver (sync)
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql+psycopg2://postgres:password@localhost:5432/distributed_ledger")
 
 # Create engine - using asyncpg for non-blocking I/O
 engine = create_engine(

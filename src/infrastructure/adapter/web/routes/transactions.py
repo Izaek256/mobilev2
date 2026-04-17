@@ -12,7 +12,7 @@ from src.infrastructure.adapter.persistence.repositories import (
     SQLAlchemyLedgerEntryRepository,
 )
 from src.application.service.send_money_service import SendMoneyService
-from src.domain.port.in.send_money_command import SendMoneyCommand
+from src.domain.port.inbound.send_money_command import SendMoneyCommand
 from src.domain.exception.domain_exception import DomainException
 
 router = APIRouter(prefix="/api/v1/transactions", tags=["transactions"])

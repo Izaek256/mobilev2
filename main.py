@@ -8,7 +8,7 @@ from src.infrastructure.config.database import init_db
 def main():
     """Main entry point."""
     # Initialize database (create tables if not exist)
-    init_db()
+    # init_db()  # Temporarily commented out - requires active PostgreSQL connection
     
     # Create FastAPI app
     app = create_app()
