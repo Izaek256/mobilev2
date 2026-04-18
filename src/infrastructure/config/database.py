@@ -12,7 +12,7 @@ load_dotenv()
 Base = declarative_base()
 
 # Database URL - defaults to MySQL with aiomysql driver (async)
-DATABASE_URL = os.getenv("DATABASE_URL", "mysql+aiomysql://root:password@localhost:3306/distributed_ledger")
+DATABASE_URL = os.getenv("DATABASE_URL", "mysql+aiomysql://root@localhost:3306/distributed_ledger")
 
 # Create engine - using aiomysql for non-blocking I/O
 engine = create_engine(

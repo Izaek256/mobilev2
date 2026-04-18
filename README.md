@@ -91,7 +91,7 @@ pip install -r requirements.txt
 
 2. Create `.env` file with the following content:
    ```env
-   DATABASE_URL=mysql+aiomysql://root:password@localhost:3306/distributed_ledger_1
+   DATABASE_URL=mysql+aiomysql://root@localhost:3306/distributed_ledger_1
    NODE_ID=node-1
    PEERS=http://node-2:8000,http://node-3:8000
    ```
@@ -247,7 +247,7 @@ distributed-ledger-python/
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `DATABASE_URL` | MySQL connection string | `mysql+aiomysql://root:password@localhost:3306/distributed_ledger` |
+| `DATABASE_URL` | MySQL connection string | `mysql+aiomysql://root@localhost:3306/distributed_ledger` |
 | `NODE_ID` | This node's unique identifier | `node-1` |
 | `PEERS` | Comma-separated list of peer addresses | Empty (single-node) |
 
@@ -266,7 +266,7 @@ python main.py
 ```bash
 NODE_ID=node-2 \
 PEERS="http://localhost:8000,http://localhost:8002" \
-DATABASE_URL=mysql+aiomysql://root:password@localhost:3306/distributed_ledger_2 \
+DATABASE_URL=mysql+aiomysql://root@localhost:3306/distributed_ledger_2 \
 python -c "from src.infrastructure.config.database import init_db; init_db()" && \
 uvicorn src.infrastructure.adapter.web.http_adapter:create_app --host 0.0.0.0 --port 8001
 ```
@@ -275,7 +275,7 @@ uvicorn src.infrastructure.adapter.web.http_adapter:create_app --host 0.0.0.0 --
 ```bash
 NODE_ID=node-3 \
 PEERS="http://localhost:8000,http://localhost:8001" \
-DATABASE_URL=mysql+aiomysql://root:password@localhost:3306/distributed_ledger_3 \
+DATABASE_URL=mysql+aiomysql://root@localhost:3306/distributed_ledger_3 \
 python -c "from src.infrastructure.config.database import init_db; init_db()" && \
 uvicorn src.infrastructure.adapter.web.http_adapter:create_app --host 0.0.0.0 --port 8002
 ```
