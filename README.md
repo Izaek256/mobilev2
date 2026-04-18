@@ -1,6 +1,6 @@
 # Distributed Ledger System
 
-A robust distributed ledger system built with Python, FastAPI, and PostgreSQL. Implements Raft consensus for multi-node replication, event sourcing for transaction history, and distributed consistency guarantees.
+A robust distributed ledger system built with Python, FastAPI, and MySQL. Implements Raft consensus for multi-node replication, event sourcing for transaction history, and distributed consistency guarantees.
 
 ## Architecture
 
@@ -8,7 +8,7 @@ This project follows **Hexagonal Architecture** (Ports & Adapters) with three la
 
 - **Domain Layer**: Pure Python business logic (models, entities, exceptions)
 - **Application Layer**: Use cases and service orchestration (including Raft consensus coordination)
-- **Infrastructure Layer**: Framework implementations (FastAPI, SQLAlchemy, PostgreSQL, Raft consensus engine)
+- **Infrastructure Layer**: Framework implementations (FastAPI, SQLAlchemy, MySQL, Raft consensus engine)
 
 ## Key Distributed Ledger Features
 
@@ -47,7 +47,7 @@ This project follows **Hexagonal Architecture** (Ports & Adapters) with three la
 ## Prerequisites
 
 - **Python 3.12+** (tested with Python 3.12+)
-- **PostgreSQL 12+** installed and running locally
+- **MySQL 8.0+** installed and running locally
 - `pip` package manager
 
 ## Setup
@@ -79,16 +79,19 @@ pip install -r requirements.txt
 
 ### 4. Configure Database
 
-**Option A: Using PostgreSQL (Recommended)**
+**Option A: Using MySQL (Recommended)**
 
-1. Create a PostgreSQL database:
+1. Create MySQL databases:
    ```sql
-   CREATE DATABASE distributed_ledger;
+   mysql -u root -p
+   CREATE DATABASE distributed_ledger_1;
+   CREATE DATABASE distributed_ledger_2;
+   CREATE DATABASE distributed_ledger_3;
    ```
 
 2. Create `.env` file with the following content:
    ```env
-   DATABASE_URL=postgresql+asyncpg://postgres:your_password@localhost:5432/distributed_ledger
+   DATABASE_URL=mysql+aiomysql://root:password@localhost:3306/distributed_ledger_1
    NODE_ID=node-1
    PEERS=http://node-2:8000,http://node-3:8000
    ```
@@ -244,7 +247,7 @@ distributed-ledger-python/
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `DATABASE_URL` | PostgreSQL connection string | `postgresql+asyncpg://postgres:password@localhost:5432/distributed_ledger` |
+| `DATABASE_URL` | MySQL connection string | `mysql+aiomysql://root:password@localhost:3306/distributed_ledger` |
 | `NODE_ID` | This node's unique identifier | `node-1` |
 | `PEERS` | Comma-separated list of peer addresses | Empty (single-node) |
 
@@ -263,7 +266,7 @@ python main.py
 ```bash
 NODE_ID=node-2 \
 PEERS="http://localhost:8000,http://localhost:8002" \
-DATABASE_URL=postgresql+asyncpg://postgres:password@localhost:5432/distributed_ledger_2 \
+DATABASE_URL=mysql+aiomysql://root:password@localhost:3306/distributed_ledger_2 \
 python -c "from src.infrastructure.config.database import init_db; init_db()" && \
 uvicorn src.infrastructure.adapter.web.http_adapter:create_app --host 0.0.0.0 --port 8001
 ```
@@ -272,7 +275,7 @@ uvicorn src.infrastructure.adapter.web.http_adapter:create_app --host 0.0.0.0 --
 ```bash
 NODE_ID=node-3 \
 PEERS="http://localhost:8000,http://localhost:8001" \
-DATABASE_URL=postgresql+asyncpg://postgres:password@localhost:5432/distributed_ledger_3 \
+DATABASE_URL=mysql+aiomysql://root:password@localhost:3306/distributed_ledger_3 \
 python -c "from src.infrastructure.config.database import init_db; init_db()" && \
 uvicorn src.infrastructure.adapter.web.http_adapter:create_app --host 0.0.0.0 --port 8002
 ```
@@ -402,10 +405,10 @@ curl -X POST http://localhost:8000/api/v1/transactions/send-consensus ...
 - Check `idempotency_keys` table for duplicate keys
 - Verify database replication across nodes
 
-### PostgreSQL Connection Error
-- Ensure PostgreSQL is running: `psql -U postgres`
+### MySQL Connection Error
+- Ensure MySQL is running: `mysql -u root -p`
 - Check connection string in `.env`
-- Verify database exists: `psql -l | grep distributed_ledger`
+- Verify databases exist: `SHOW DATABASES; LIKE 'distributed_ledger%'`
 
 ### Module Import Errors
 - Ensure virtual environment is activated

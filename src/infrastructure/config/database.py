@@ -11,13 +11,14 @@ load_dotenv()
 # Base class for ORM models
 Base = declarative_base()
 
-# Database URL - defaults to PostgreSQL with psycopg2 driver (sync)
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql+psycopg2://postgres:password@localhost:5432/distributed_ledger")
+# Database URL - defaults to MySQL with aiomysql driver (async)
+DATABASE_URL = os.getenv("DATABASE_URL", "mysql+aiomysql://root:password@localhost:3306/distributed_ledger")
 
-# Create engine - using asyncpg for non-blocking I/O
+# Create engine - using aiomysql for non-blocking I/O
 engine = create_engine(
     DATABASE_URL,
     echo=False,  # Set to True for SQL debugging
+    pool_pre_ping=True,  # Verify connections before using them
 )
 
 # Session factory
