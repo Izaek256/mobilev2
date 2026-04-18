@@ -13,7 +13,6 @@ from sqlalchemy import (
     UniqueConstraint,
     Index,
 )
-from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.types import TypeDecorator
 import uuid as uuid_module
 
