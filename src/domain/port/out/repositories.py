@@ -21,7 +21,7 @@ class AccountRepository(ABC):
         pass
     
     @abstractmethod
-    def find_by_id(self, account_id: UUID) -> Optional[Account]:
+    def find_by_id(self, account_id: str) -> Optional[Account]:
         """Find account by ID.
         
         Args:

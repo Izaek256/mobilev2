@@ -14,7 +14,7 @@ class LedgerEntry:
         self,
         entry_id: UUID,
         transaction_id: UUID,
-        account_id: UUID,
+        account_id: str,
         entry_type: EntryType,
         amount: Money,
         created_at: Optional[datetime] = None,

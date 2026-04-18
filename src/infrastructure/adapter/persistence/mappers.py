@@ -1,6 +1,5 @@
 """Mappers between domain models and SQLAlchemy ORM models."""
 
-from uuid import UUID
 from decimal import Decimal
 from src.domain.model.account import Account
 from src.domain.model.transaction import Transaction

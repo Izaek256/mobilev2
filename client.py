@@ -157,11 +157,12 @@ def screen_check_balance():
         _pause()
         return
 
-    if "error" in str(result.get("status", "")):
-        msg   = result.get("message", "Unknown error")
+    if "error" in str(result.get("status", "")).lower() or "detail" in result:
+        msg   = result.get("message", result.get("detail", "Unknown error"))
         code  = result.get("error_code", "")
+        error_code_text = f"\n[dim]Error Code: {code}[/]" if code else ""
         console.print(Panel(
-            f"[red]!! {msg}[/]\n[dim]Error Code: {code}[/]",
+            f"[red]!! {msg}[/]{error_code_text}",
             title="[red]Error[/]", border_style="red"
         ))
     else:
@@ -169,13 +170,18 @@ def screen_check_balance():
         currency = result.get("currency", CURRENCY)
         owner = result.get("owner_id", "—")
 
+        try:
+            formatted_balance = f"{Decimal(str(balance)):,.2f}"
+        except InvalidOperation:
+            formatted_balance = str(balance)
+
         table = Table(box=box.SIMPLE_HEAD, border_style="green", show_header=False)
         table.add_column("Field",  style="dim", width=18)
         table.add_column("Value",  style="bold white")
 
         table.add_row("Account ID",  account_id)
         table.add_row("Owner",       owner)
-        table.add_row("Balance",     f"[bold green]{currency} {Decimal(str(balance)):,.2f}[/]")
+        table.add_row("Balance",     f"[bold green]{currency} {formatted_balance}[/]")
         table.add_row("Status",      result.get("status", "active").upper())
 
         console.print(Panel(table, title="[green]Account Balance[/]", border_style="green"))
@@ -270,9 +276,10 @@ def screen_account_info():
         _pause()
         return
 
-    if "error" in str(result.get("status", "")):
+    if "error" in str(result.get("status", "")).lower() or "detail" in result:
+        msg = result.get("message", result.get("detail", "Not found"))
         console.print(Panel(
-            f"[red]!! {result.get('message', 'Not found')}[/]",
+            f"[red]!! {msg}[/]",
             title="[red]Error[/]", border_style="red"
         ))
         _pause()

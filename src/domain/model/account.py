@@ -18,7 +18,7 @@ class Account:
     
     def __init__(
         self,
-        account_id: UUID,
+        account_id: str,
         owner_id: str,
         balance: Money,
         status: AccountStatus = AccountStatus.ACTIVE,

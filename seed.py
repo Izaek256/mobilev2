@@ -10,35 +10,35 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from src.infrastructure.config.database import SessionLocal, init_db
+from src.infrastructure.config.database import SessionLocal, init_db, engine, Base
 from src.infrastructure.adapter.persistence.sqlalchemy_models import AccountModel
 
 # ── Seed data ──────────────────────────────────────────────────────────────────
 
 ACCOUNTS = [
     {
-        "account_id": uuid.UUID("aaaaaaaa-0000-0000-0000-000000000001"),
+        "account_id": "alice",
         "owner_id":   "alice",
         "balance":    Decimal("500000.00"),   # UGX 500,000
         "currency":   "UGX",
         "status":     "ACTIVE",
     },
     {
-        "account_id": uuid.UUID("bbbbbbbb-0000-0000-0000-000000000002"),
+        "account_id": "bob",
         "owner_id":   "bob",
         "balance":    Decimal("250000.00"),   # UGX 250,000
         "currency":   "UGX",
         "status":     "ACTIVE",
     },
     {
-        "account_id": uuid.UUID("cccccccc-0000-0000-0000-000000000003"),
+        "account_id": "carol",
         "owner_id":   "carol",
         "balance":    Decimal("100000.00"),   # UGX 100,000
         "currency":   "UGX",
         "status":     "ACTIVE",
     },
     {
-        "account_id": uuid.UUID("dddddddd-0000-0000-0000-000000000004"),
+        "account_id": "dave",
         "owner_id":   "dave",
         "balance":    Decimal("0.00"),
         "currency":   "UGX",
@@ -49,6 +49,7 @@ ACCOUNTS = [
 
 def run():
     print("Initializing database tables...")
+    Base.metadata.drop_all(bind=engine)
     init_db()
     print("Tables OK.\n")
 

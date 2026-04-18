@@ -8,16 +8,16 @@ from pydantic import BaseModel, Field
 class SendMoneyRequest(BaseModel):
     """Request DTO for sending money between accounts."""
     
-    from_account_id: UUID = Field(..., description="Source account ID")
-    to_account_id: UUID = Field(..., description="Destination account ID")
+    from_account_id: str = Field(..., description="Source account ID")
+    to_account_id: str = Field(..., description="Destination account ID")
     amount: Decimal = Field(..., gt=0, description="Amount to transfer (must be positive)")
     idempotency_key: str = Field(..., min_length=1, description="Unique idempotency key")
     
     class Config:
         json_schema_extra = {
             "example": {
-                "from_account_id": "550e8400-e29b-41d4-a716-446655440000",
-                "to_account_id": "550e8400-e29b-41d4-a716-446655440001",
+                "from_account_id": "alice",
+                "to_account_id": "bob",
                 "amount": 100.50,
                 "idempotency_key": "txn-12345-67890",
             }

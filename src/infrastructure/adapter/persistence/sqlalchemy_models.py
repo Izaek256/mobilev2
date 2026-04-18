@@ -45,7 +45,7 @@ class AccountModel(Base):
     
     __tablename__ = "accounts"
     
-    account_id = Column(GUID, primary_key=True, default=uuid4)
+    account_id = Column(String(50), primary_key=True)
     owner_id = Column(String(255), nullable=False, index=True)
     balance = Column(Numeric(19, 2), nullable=False, default=0)
     currency = Column(String(3), nullable=False, default="USD")
@@ -70,8 +70,8 @@ class TransactionModel(Base):
     
     transaction_id = Column(GUID, primary_key=True, default=uuid4)
     idempotency_key = Column(String(255), nullable=False, unique=True, index=True)
-    from_account_id = Column(GUID, ForeignKey("accounts.account_id"), nullable=False)
-    to_account_id = Column(GUID, ForeignKey("accounts.account_id"), nullable=False)
+    from_account_id = Column(String(50), ForeignKey("accounts.account_id"), nullable=False)
+    to_account_id = Column(String(50), ForeignKey("accounts.account_id"), nullable=False)
     amount = Column(Numeric(19, 2), nullable=False)
     currency = Column(String(3), nullable=False, default="USD")
     transaction_type = Column(String(50), nullable=False, default="TRANSFER")
@@ -100,7 +100,7 @@ class LedgerEntryModel(Base):
     
     entry_id = Column(GUID, primary_key=True, default=uuid4)
     transaction_id = Column(GUID, ForeignKey("transactions.transaction_id"), nullable=False)
-    account_id = Column(GUID, ForeignKey("accounts.account_id"), nullable=False)
+    account_id = Column(String(50), ForeignKey("accounts.account_id"), nullable=False)
     entry_type = Column(String(10), nullable=False)  # DEBIT or CREDIT
     amount = Column(Numeric(19, 2), nullable=False)
     currency = Column(String(3), nullable=False, default="USD")
