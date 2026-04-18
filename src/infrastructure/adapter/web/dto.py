@@ -29,12 +29,14 @@ class SendMoneyResponse(BaseModel):
     
     status: str = Field(..., description="Operation status (e.g., 'success')")
     message: str = Field(..., description="Response message")
+    transaction_id: str = Field(None, description="Transaction ID (UUID) from Raft consensus")
     
     class Config:
         json_schema_extra = {
             "example": {
                 "status": "success",
                 "message": "Money transferred successfully",
+                "transaction_id": "550e8400-e29b-41d4-a716-446655440000",
             }
         }
 

@@ -8,8 +8,11 @@ from src.infrastructure.adapter.web.routes import health, transactions, cluster,
 from src.infrastructure.adapter.web.dto import ErrorResponse
 import os
 import asyncio
+import logging
 from src.infrastructure.consensus.raft_node import RaftNode
 import src.infrastructure.consensus.raft_node as raft_module
+
+logger = logging.getLogger(__name__)
 
 
 def create_app() -> FastAPI:
@@ -40,6 +43,21 @@ def create_app() -> FastAPI:
         # Start the election timeout and apply loop immediately
         # For single-node clusters, this makes the node a leader
         asyncio.create_task(raft_module.node.start())
+        
+        # Wait for cluster to be ready (leader elected or follower knows leader)
+        # Timeout after 10 seconds to avoid blocking server startup forever
+        try:
+            await asyncio.wait_for(
+                raft_module.node.ready_event.wait(),
+                timeout=10.0
+            )
+            logger.info(f"Raft cluster ready. Node state: {raft_module.node.state}, Leader: {raft_module.node.leader_id}")
+        except asyncio.TimeoutError:
+            logger.warning(
+                f"Raft cluster not ready after 10 seconds. "
+                f"Node state: {raft_module.node.state}, Leader: {raft_module.node.leader_id}. "
+                f"Requests may fail if no leader is elected."
+            )
     
     # Exception handlers
     @app.exception_handler(RequestValidationError)

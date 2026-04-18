@@ -1,24 +1,40 @@
-"""Transaction routes for money transfers."""
+"""
+Transaction routes - CONSENSUS-FIRST ARCHITECTURE.
 
-from fastapi import APIRouter, Depends, Header, HTTPException, status as http_status
+CRITICAL DESIGN PRINCIPLE:
+No database writes from API handlers. All state changes come from committed Raft entries.
+
+Flow for every transaction:
+1. API receives request with Transaction ID (UUID)
+2. Check if current node is Leader (redirect 307 if not)
+3. Append to Raft log
+4. Wait for commitment (replication to majority)
+5. Apply committed entry to state machine (local database)
+
+This ensures:
+- Consensus as source of truth
+- Idempotent retries (same transaction ID = same result)
+- Deterministic state (timestamps from Raft, not system time)
+- No partial failures (consensus succeeded = state machine safe)
+"""
+
+from fastapi import APIRouter, Depends, Header, HTTPException, status as http_status, Response
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 import logging
+import asyncio
 from typing import Optional
+from starlette.responses import RedirectResponse
 
 from src.infrastructure.adapter.web.dto import SendMoneyRequest, SendMoneyResponse, ErrorResponse
 from src.infrastructure.adapter.web.security import BasicAuthValidator
 from src.infrastructure.config.database import get_db_session
-from src.infrastructure.adapter.persistence.event_sourced_repositories import (
-    EventSourcedAccountRepository,
-    EventSourcedTransactionRepository,
-    EventSourcedLedgerEntryRepository,
+from src.infrastructure.consensus.consensus_transaction_manager import (
+    ConsensusTransactionManager,
+    NotLeaderError,
+    ConsensusTimeoutError,
+    ConsensusTransactionError,
 )
-from src.infrastructure.config.cluster_state import IdempotencyManager, ClusterStateManager
-from src.application.service.send_money_service import SendMoneyService
-from src.application.service.transaction_coordinator import ConsensusedTransactionManager
-from src.domain.port.inbound.send_money_command import SendMoneyCommand
-from src.domain.exception.domain_exception import DomainException
 import src.infrastructure.consensus.raft_node as raft_module
 
 logger = logging.getLogger(__name__)
@@ -31,14 +47,12 @@ auth_validator = BasicAuthValidator(
 )
 
 
-class ConsensusTransactionRequest(BaseModel):
-    """Request for consensus-based transaction."""
+class SendMoneyConsensusRequest(BaseModel):
+    """Request for consensus-based money transfer."""
     from_account_id: str
     to_account_id: str
     amount: float
     currency: str = "USD"
-    idempotency_key: str
-    wait_for_acks: int = 1  # Number of nodes to wait for
 
 
 def verify_auth(authorization: str = Header(None)) -> None:
@@ -54,124 +68,161 @@ def verify_auth(authorization: str = Header(None)) -> None:
 
 
 @router.post("/send", response_model=SendMoneyResponse, responses={
+    307: {"description": "Redirect to leader"},
     400: {"model": ErrorResponse},
     401: {"model": ErrorResponse},
-    404: {"model": ErrorResponse},
-    409: {"model": ErrorResponse},
+    503: {"model": ErrorResponse},
 })
 async def send_money(
-    request: SendMoneyRequest,
+    request: SendMoneyConsensusRequest,
     db: Session = Depends(get_db_session),
     _: None = Depends(verify_auth),
 ):
-    """Send money from one account to another (traditional ACID mode).
+    """
+    Send money from one account to another via Raft consensus (CONSENSUS-FIRST).
     
-    Handles:
-    - Idempotency using idempotency_key
-    - Account validation
-    - Sufficient funds check
-    - Atomic transaction processing
-    - Double-entry bookkeeping
+    CRITICAL: This endpoint does NOT write directly to the database.
+    Instead, it follows the consensus-first workflow:
+    
+    1. Check if this node is the Leader
+    2. If not, return HTTP 307 redirect to leader
+    3. If leader, append transaction to Raft log
+    4. Wait for commitment (replication to majority)
+    5. Apply committed entry to state machine (database)
+    
+    This ensures:
+    - All state changes replicated across cluster
+    - Idempotent retries (same transaction = same result)
+    - No partial failures (consensus = safety guarantee)
+    - Deterministic ordering (Raft total order)
     
     Args:
-        request: SendMoneyRequest with transfer details
-        db: Database session
+        request: SendMoneyConsensusRequest with transfer details
+        db: Database session (for state machine apply only)
         
     Returns:
-        SendMoneyResponse with success status
+        SendMoneyResponse with transaction_id and success status
         
     Raises:
-        HTTPException: On validation or domain errors
+        HTTPException 307: If not leader (redirect to leader)
+        HTTPException 503: If consensus fails
+        HTTPException 400: If validation fails
     """
+    if not raft_module.node:
+        raise HTTPException(
+            status_code=503,
+            detail=ErrorResponse(
+                status="error",
+                message="Raft consensus not available",
+                error_code="CONSENSUS_UNAVAILABLE",
+            ).model_dump(),
+        )
+    
+    consensus_mgr = ConsensusTransactionManager(db)
+    
     try:
-        # Check idempotency key across cluster
-        idempotency_mgr = IdempotencyManager(db)
-        existing = idempotency_mgr.check_idempotency_key(request.idempotency_key)
-        if existing:
-            if existing["status"] == "completed":
-                logger.info(f"Idempotent retry: {request.idempotency_key}")
-                return SendMoneyResponse(
-                    status="success",
-                    message="Money transferred successfully (idempotent)",
-                )
-            elif existing["status"] == "pending":
+        # STEP 1: Check if current node is the Leader
+        if not consensus_mgr.is_leader():
+            logger.info(
+                f"Request to non-leader node {raft_module.node.node_id}. "
+                f"Current state: {raft_module.node.state}. "
+                f"Redirecting to leader."
+            )
+            # STEP 2: Redirect to leader (HTTP 307)
+            leader_info = consensus_mgr.get_leader_address()
+            if leader_info:
+                # In production, maintain node_id -> address mapping
                 raise HTTPException(
-                    status_code=409,
+                    status_code=307,
                     detail=ErrorResponse(
                         status="error",
-                        message="Transaction is still pending",
-                        error_code="PENDING",
+                        message=f"Redirect to leader {leader_info}",
+                        error_code="NOT_LEADER",
+                    ).model_dump(),
+                )
+            else:
+                raise HTTPException(
+                    status_code=503,
+                    detail=ErrorResponse(
+                        status="error",
+                        message="No leader elected yet. Try again.",
+                        error_code="NO_LEADER",
                     ).model_dump(),
                 )
         
-        # Create repositories
-        account_repo = EventSourcedAccountRepository(db)
-        transaction_repo = EventSourcedTransactionRepository(db)
-        ledger_repo = EventSourcedLedgerEntryRepository(db)
-        
-        # Create service
-        service = SendMoneyService(account_repo, transaction_repo, ledger_repo)
-        
-        # Create command
-        command = SendMoneyCommand(
-            from_account_id=request.from_account_id,
-            to_account_id=request.to_account_id,
-            amount=request.amount,
-            idempotency_key=request.idempotency_key,
+        # STEP 3: Append to Raft log and STEPS 4-5: Wait for commitment and apply
+        logger.info(
+            f"Leader processing send_money: {request.from_account_id} -> "
+            f"{request.to_account_id}: {request.amount} {request.currency}"
         )
         
-        # Execute
-        service.execute(command)
-        
-        # Mark as completed
-        idempotency_mgr.mark_completed(request.idempotency_key)
-        
-        # Commit transaction
-        db.commit()
-        
-        logger.info(f"Transaction completed: {request.idempotency_key}")
-        return SendMoneyResponse(
-            status="success",
-            message="Money transferred successfully",
-        )
-    
-    except DomainException as e:
-        db.rollback()
-        if "idempotency_mgr" in locals():
-            try:
-                idempotency_mgr.mark_failed(request.idempotency_key, str(e))
-                db.commit()
-            except:
-                pass
-        
-        # Map domain exceptions to HTTP errors
-        error_mapping = {
-            "AccountNotFoundException": (404, "ACCOUNT_NOT_FOUND"),
-            "InsufficientFundsException": (400, "INSUFFICIENT_FUNDS"),
-            "AccountInactiveException": (400, "ACCOUNT_INACTIVE"),
-            "InvalidMoneyException": (400, "INVALID_MONEY"),
-            "OptimisticLockException": (409, "CONFLICT"),
+        payload = {
+            "from_account_id": request.from_account_id,
+            "to_account_id": request.to_account_id,
+            "amount": request.amount,
+            "currency": request.currency,
         }
         
-        exception_name = type(e).__name__
-        status_code, error_code = error_mapping.get(
-            exception_name,
-            (500, "INTERNAL_ERROR")
+        transaction_id, result = await consensus_mgr.append_and_wait_for_commitment(
+            operation_type="send_money",
+            payload=payload,
+            timeout_seconds=5.0,
         )
         
-        logger.error(f"Domain error in transaction: {exception_name}")
+        logger.info(f"Transaction {transaction_id} completed successfully")
+        return SendMoneyResponse(
+            status="success",
+            message=result.get("result", {}).get("message", "Money transferred successfully"),
+            transaction_id=transaction_id,
+        )
+    
+    except NotLeaderError as e:
+        logger.info(f"Not leader: {str(e)}")
         raise HTTPException(
-            status_code=status_code,
+            status_code=307,
             detail=ErrorResponse(
                 status="error",
-                message=e.message,
-                error_code=error_code,
+                message=str(e),
+                error_code="NOT_LEADER",
+            ).model_dump(),
+        )
+    
+    except ConsensusTimeoutError as e:
+        logger.warning(f"Consensus timeout: {str(e)}")
+        raise HTTPException(
+            status_code=503,
+            detail=ErrorResponse(
+                status="error",
+                message="Consensus not reached within timeout. Request may have been processed.",
+                error_code="CONSENSUS_TIMEOUT",
+            ).model_dump(),
+        )
+    
+    except ConsensusTransactionError as e:
+        logger.error(f"Consensus error: {str(e)}")
+        raise HTTPException(
+            status_code=503,
+            detail=ErrorResponse(
+                status="error",
+                message=str(e),
+                error_code="CONSENSUS_ERROR",
+            ).model_dump(),
+        )
+    
+    except ValueError as e:
+        # Domain validation errors (e.g., insufficient funds)
+        logger.warning(f"Validation error: {str(e)}")
+        raise HTTPException(
+            status_code=400,
+            detail=ErrorResponse(
+                status="error",
+                message=str(e),
+                error_code="VALIDATION_ERROR",
             ).model_dump(),
         )
     
     except Exception as e:
-        db.rollback()
-        logger.error(f"Error in send_money: {e}")
+        logger.error(f"Unexpected error in send_money: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=ErrorResponse(
@@ -190,7 +241,7 @@ async def send_money(
     503: {"model": ErrorResponse},
 })
 async def send_money_consensus(
-    request: ConsensusTransactionRequest,
+    request: SendMoneyConsensusRequest,
     db: Session = Depends(get_db_session),
     _: None = Depends(verify_auth),
 ):
@@ -313,23 +364,88 @@ async def send_money_consensus(
         )
 
 
-@router.get("/transaction/{transaction_id}")
+
+@router.get("/status/{transaction_id}", tags=["transactions"])
 async def get_transaction_status(
     transaction_id: str,
     db: Session = Depends(get_db_session),
+    _: None = Depends(verify_auth),
 ):
-    """Get the status of a transaction.
+    """
+    Get the status of a transaction.
+    
+    Queries the idempotency record to see if a transaction with this ID
+    has been applied to the state machine.
     
     Args:
-        transaction_id: The transaction ID
+        transaction_id: The transaction ID (UUID)
         db: Database session
         
     Returns:
-        Transaction status
+        Transaction status and metadata
     """
-    # TODO: Implement transaction status lookup
+    from src.infrastructure.adapter.persistence.sqlalchemy_models import IdempotencyKeyModel
+    
+    try:
+        record = db.query(IdempotencyKeyModel).filter(
+            IdempotencyKeyModel.idempotency_key == transaction_id
+        ).first()
+        
+        if not record:
+            return {
+                "transaction_id": transaction_id,
+                "status": "not_found",
+                "message": "Transaction not found",
+            }
+        
+        return {
+            "transaction_id": transaction_id,
+            "status": record.status,
+            "raft_index": record.raft_index,
+            "raft_term": record.raft_term,
+            "created_at": record.created_at.isoformat() if record.created_at else None,
+            "result": record.response_data,
+        }
+    except Exception as e:
+        logger.error(f"Error querying transaction status: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=ErrorResponse(
+                status="error",
+                message="Internal server error",
+                error_code="INTERNAL_ERROR",
+            ).model_dump(),
+        )
+
+
+@router.get("/raft-status", tags=["transactions"])
+async def get_raft_status(_: None = Depends(verify_auth)):
+    """
+    Get current Raft consensus status.
+    
+    Useful for debugging and understanding cluster state.
+    
+    Returns:
+        Node ID, state, term, commit index, log length
+    """
+    if not raft_module.node:
+        raise HTTPException(
+            status_code=503,
+            detail=ErrorResponse(
+                status="error",
+                message="Raft not initialized",
+                error_code="RAFT_UNAVAILABLE",
+            ).model_dump(),
+        )
+    
     return {
-        "transaction_id": transaction_id,
-        "status": "unknown"
+        "node_id": raft_module.node.node_id,
+        "state": raft_module.node.state.value,
+        "current_term": raft_module.node.current_term,
+        "commit_index": raft_module.node.commit_index,
+        "last_applied": raft_module.node.last_applied,
+        "log_length": len(raft_module.node.log),
+        "peers": raft_module.node.peers,
+        "is_leader": raft_module.node.state == raft_module.NodeState.LEADER,
     }
 

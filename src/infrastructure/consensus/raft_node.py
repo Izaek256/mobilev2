@@ -64,6 +64,10 @@ class RaftNode:
         self.replication_pending: Dict[str, asyncio.Event] = {}
         self.last_heartbeat_time = datetime.utcnow()
         
+        # Ready event - signals when cluster is ready for requests
+        # Set when: (1) this node becomes leader, or (2) this node receives heartbeat from leader
+        self.ready_event = asyncio.Event()
+        
         self.election_timeout_task = None
         self.heartbeat_task = None
         self.apply_task = None
@@ -80,7 +84,9 @@ class RaftNode:
             # Single node cluster, become leader immediately
             self.state = NodeState.LEADER
             self.current_term = 1
+            self.leader_id = self.node_id
             logger.info(f"Single node cluster: {self.node_id} became LEADER")
+            self.ready_event.set()  # Signal ready immediately for single-node cluster
         else:
             # Give the server time to fully start before beginning election
             await asyncio.sleep(2)
@@ -153,6 +159,7 @@ class RaftNode:
             logger.info(f"Node {self.node_id} became LEADER for term {self.current_term} (votes: {votes}/{len(self.peers)+1})")
             self.state = NodeState.LEADER
             self.leader_id = self.node_id
+            self.ready_event.set()  # Signal ready when becoming leader
             
             # Initialize leader state
             for peer in self.peers:
@@ -302,10 +309,54 @@ class RaftNode:
                 await asyncio.sleep(0.1)
     
     async def _apply_entry(self, entry: LogEntry):
-        """Apply a log entry to the state machine."""
-        logger.info(f"Applying entry: {entry.entry_id} - {entry.data}")
-        # TODO: Call state machine to apply entry
-        # This would typically persist the transaction to the event store
+        """
+        Apply a log entry to the state machine.
+        
+        This is called when an entry is committed (replicated to majority).
+        The state machine applier will check idempotency and apply deterministically.
+        """
+        logger.info(f"Applying committed entry: {entry.entry_id} at index {entry.index}")
+        # The state machine applier will be called from the consensus transaction manager
+        # This hook is here for future integration with persistent state machine application
+    
+    def append_entry(self, data: Dict[str, Any]) -> int:
+        """
+        Append an entry to the Raft log (leader only).
+        
+        CONSENSUS-FIRST: This is the critical method that bridges API and Raft.
+        
+        Args:
+            data: Entry data (contains transaction_id, operation_type, payload)
+            
+        Returns:
+            Index of the appended entry
+            
+        Raises:
+            RuntimeError: If not the leader
+        """
+        if self.state != NodeState.LEADER:
+            raise RuntimeError(f"Not leader. Current state: {self.state}")
+        
+        # Create log entry with current term
+        next_index = self.get_last_log_index() + 1
+        entry = LogEntry(self.current_term, next_index, data)
+        self.log.append(entry)
+        
+        logger.info(
+            f"Leader {self.node_id} appended entry at index {next_index}: "
+            f"transaction_id={data.get('transaction_id')}"
+        )
+        
+        # For single-node clusters, immediately update commit_index
+        # Since the leader itself forms a quorum, entries are committed instantly
+        if not self.peers:
+            self.commit_index = next_index
+            logger.info(f"Single-node cluster: committed entry at index {next_index}")
+        else:
+            # For multi-node clusters, update commit_index based on replication progress
+            self._update_commit_index()
+        
+        return next_index
     
     async def handle_request_vote(self, term: int, candidate_id: str, last_log_index: int, last_log_term: int) -> Dict[str, Any]:
         """Handle RequestVote RPC."""
@@ -346,6 +397,7 @@ class RaftNode:
         if term >= self.current_term:
             self.state = NodeState.FOLLOWER
             self.leader_id = leader_id
+            self.ready_event.set()  # Signal ready when we know the leader
             self._reset_election_timeout()
         
         # Check log consistency
