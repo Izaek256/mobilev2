@@ -19,7 +19,7 @@ from src.application.service.send_money_service import SendMoneyService
 from src.application.service.transaction_coordinator import ConsensusedTransactionManager
 from src.domain.port.inbound.send_money_command import SendMoneyCommand
 from src.domain.exception.domain_exception import DomainException
-from src.infrastructure.consensus.raft_node import node as raft_node
+import src.infrastructure.consensus.raft_node as raft_module
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/transactions", tags=["transactions"])
@@ -209,7 +209,7 @@ async def send_money_consensus(
     Raises:
         HTTPException: On validation, consensus, or domain errors
     """
-    if not raft_node:
+    if not raft_module.node:
         raise HTTPException(
             status_code=503,
             detail=ErrorResponse(
@@ -242,7 +242,7 @@ async def send_money_consensus(
                 )
         
         # Create coordinator
-        node_id = raft_node.node_id
+        node_id = raft_module.node.node_id
         coordinator = ConsensusedTransactionManager(node_id)
         
         # Prepare transaction data
@@ -295,8 +295,8 @@ async def send_money_consensus(
             "status": "success",
             "message": message,
             "transaction_id": transaction_id,
-            "raft_term": raft_node.current_term,
-            "leader_id": raft_node.get_leader_id()
+            "raft_term": raft_module.node.current_term,
+            "leader_id": raft_module.node.get_leader_id()
         }
     
     except HTTPException:

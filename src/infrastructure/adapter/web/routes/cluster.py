@@ -7,7 +7,7 @@ import logging
 from datetime import datetime
 
 from src.infrastructure.config.database import get_db_session
-from src.infrastructure.consensus.raft_node import node as raft_node
+import src.infrastructure.consensus.raft_node as raft_module
 from src.infrastructure.config.cluster_state import ClusterStateManager
 
 router = APIRouter(prefix="/raft", tags=["raft"])
@@ -57,9 +57,9 @@ class NodeRegistrationRequest(BaseModel):
 @router.post("/request_vote")
 async def request_vote(req: RequestVoteRequest):
     """Handle RequestVote RPC from candidate."""
-    if raft_node is None:
+    if raft_module.node is None:
         raise HTTPException(status_code=503, detail="Raft node not initialized")
-    return await raft_node.handle_request_vote(
+    return await raft_module.node.handle_request_vote(
         req.term, req.candidate_id, req.last_log_index, req.last_log_term
     )
 
@@ -67,9 +67,9 @@ async def request_vote(req: RequestVoteRequest):
 @router.post("/append_entries")
 async def append_entries(req: AppendEntriesRequest):
     """Handle AppendEntries RPC from leader."""
-    if raft_node is None:
+    if raft_module.node is None:
         raise HTTPException(status_code=503, detail="Raft node not initialized")
-    return await raft_node.handle_append_entries(
+    return await raft_module.node.handle_append_entries(
         req.term, req.leader_id, req.prev_log_index, req.prev_log_term, req.entries, req.leader_commit
     )
 
@@ -138,19 +138,19 @@ async def register_node(req: NodeRegistrationRequest, db=Depends(get_db_session)
 @router.get("/cluster/leader")
 async def get_leader(db=Depends(get_db_session)):
     """Get the current leader of the cluster."""
-    if raft_node is None:
+    if raft_module.node is None:
         raise HTTPException(status_code=503, detail="Raft node not initialized")
     
-    if raft_node.is_leader():
+    if raft_module.node.is_leader():
         return {
-            "leader_id": raft_node.node_id,
+            "leader_id": raft_module.node.node_id,
             "address": "http://localhost:8000",  # Could be configured
             "is_current_node": True
         }
     
-    if raft_node.get_leader_id():
-        cluster_mgr = ClusterStateManager(db, raft_node.node_id)
-        leader = cluster_mgr.get_node(raft_node.get_leader_id())
+    if raft_module.node.get_leader_id():
+        cluster_mgr = ClusterStateManager(db, raft_module.node.node_id)
+        leader = cluster_mgr.get_node(raft_module.node.get_leader_id())
         if leader:
             return {
                 "leader_id": leader["node_id"],
@@ -164,10 +164,10 @@ async def get_leader(db=Depends(get_db_session)):
 @router.get("/cluster/health")
 async def cluster_health(db=Depends(get_db_session)):
     """Get the health status of the cluster."""
-    if raft_node is None:
+    if raft_module.node is None:
         raise HTTPException(status_code=503, detail="Raft node not initialized")
     
-    cluster_mgr = ClusterStateManager(db, raft_node.node_id)
+    cluster_mgr = ClusterStateManager(db, raft_module.node.node_id)
     cluster_mgr.check_node_health()
     db.commit()
     
