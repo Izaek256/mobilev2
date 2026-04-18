@@ -74,12 +74,17 @@ class RaftNode:
     async def start(self):
         """Start the Raft node."""
         logger.info(f"Starting Raft node {self.node_id}")
+        logger.info(f"Node peers: {self.peers}")
+        
         if not self.peers:
             # Single node cluster, become leader immediately
             self.state = NodeState.LEADER
             self.current_term = 1
             logger.info(f"Single node cluster: {self.node_id} became LEADER")
         else:
+            # Give the server time to fully start before beginning election
+            await asyncio.sleep(2)
+            logger.info(f"Node {self.node_id} starting election process")
             self._reset_election_timeout()
         
         # Start the apply state machine task
@@ -163,16 +168,24 @@ class RaftNode:
     async def _request_vote(self, peer: str) -> Dict[str, Any]:
         """Request vote from a peer."""
         try:
+            # Ensure peer URL has http:// prefix
+            if not peer.startswith("http://") and not peer.startswith("https://"):
+                peer_url = f"http://{peer}"
+            else:
+                peer_url = peer
+                
             payload = {
                 "term": self.current_term,
                 "candidate_id": self.node_id,
                 "last_log_index": self.get_last_log_index(),
                 "last_log_term": self.get_last_log_term()
             }
-            response = await self.client.post(f"http://{peer}/raft/request_vote", json=payload, timeout=2)
+            logger.debug(f"Requesting vote from {peer_url}")
+            response = await self.client.post(f"{peer_url}/raft/request_vote", json=payload, timeout=2)
+            logger.debug(f"Vote response from {peer}: {response.json()}")
             return response.json()
         except Exception as e:
-            logger.debug(f"Error requesting vote from {peer}: {e}")
+            logger.warning(f"Error requesting vote from {peer}: {e}")
             return {"term": self.current_term, "vote_granted": False}
 
     def _start_heartbeats(self):
@@ -198,6 +211,12 @@ class RaftNode:
     async def _send_append_entries(self, peer: str):
         """Send AppendEntries RPC to a follower."""
         try:
+            # Ensure peer URL has http:// prefix
+            if not peer.startswith("http://") and not peer.startswith("https://"):
+                peer_url = f"http://{peer}"
+            else:
+                peer_url = peer
+            
             prev_log_index = self.next_index[peer] - 1
             prev_log_term = self.get_log_term(prev_log_index)
             
@@ -217,7 +236,7 @@ class RaftNode:
             }
             
             response = await self.client.post(
-                f"http://{peer}/raft/append_entries", 
+                f"{peer_url}/raft/append_entries", 
                 json=payload, 
                 timeout=2
             )
