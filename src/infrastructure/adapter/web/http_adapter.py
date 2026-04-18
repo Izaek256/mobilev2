@@ -37,6 +37,8 @@ def create_app() -> FastAPI:
         peers = [p.strip() for p in peers_str.split(",")] if peers_str else []
         
         raft_module.node = RaftNode(node_id, peers)
+        # Start the election timeout and apply loop immediately
+        # For single-node clusters, this makes the node a leader
         asyncio.create_task(raft_module.node.start())
     
     # Exception handlers

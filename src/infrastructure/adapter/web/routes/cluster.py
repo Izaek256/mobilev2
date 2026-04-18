@@ -34,6 +34,7 @@ class NodeStatusResponse(BaseModel):
     node_id: str
     state: str
     term: int
+    voted_for: Optional[str]
     commit_index: int
     last_applied: int
     log_length: int
@@ -77,7 +78,8 @@ async def append_entries(req: AppendEntriesRequest):
 @router.get("/status", response_model=NodeStatusResponse)
 async def node_status():
     """Get the status of this node."""
-    if raft_node is None:
+    if raft_module.node is None:
+        logger.warning("Raft node not yet initialized")
         return {
             "node_id": "unknown",
             "state": "uninitialized",
@@ -89,23 +91,28 @@ async def node_status():
             "timestamp": datetime.utcnow().isoformat()
         }
     
-    status = raft_node.get_status()
-    return status
+    try:
+        status = raft_module.node.get_status()
+        logger.debug(f"Node status: {status}")
+        return status
+    except Exception as e:
+        logger.error(f"Error getting node status: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error getting node status: {str(e)}")
 
 
 @router.get("/cluster/status", response_model=ClusterStatusResponse)
 async def cluster_status(db=Depends(get_db_session)):
     """Get the status of the entire cluster."""
-    if raft_node is None:
+    if raft_module.node is None:
         raise HTTPException(status_code=503, detail="Raft node not initialized")
     
-    cluster_mgr = ClusterStateManager(db, raft_node.node_id)
+    cluster_mgr = ClusterStateManager(db, raft_module.node.node_id)
     all_nodes = cluster_mgr.get_all_nodes()
     leader = cluster_mgr.get_leader_node()
     
     return {
         "leader_id": leader["node_id"] if leader else None,
-        "term": raft_node.current_term,
+        "term": raft_module.node.current_term,
         "nodes": all_nodes,
         "quorum_size": cluster_mgr.get_quorum_size(),
         "timestamp": datetime.utcnow().isoformat()
@@ -115,20 +122,20 @@ async def cluster_status(db=Depends(get_db_session)):
 @router.get("/cluster/nodes")
 async def list_cluster_nodes(db=Depends(get_db_session)):
     """List all nodes in the cluster."""
-    if raft_node is None:
+    if raft_module.node is None:
         raise HTTPException(status_code=503, detail="Raft node not initialized")
     
-    cluster_mgr = ClusterStateManager(db, raft_node.node_id)
+    cluster_mgr = ClusterStateManager(db, raft_module.node.node_id)
     return {"nodes": cluster_mgr.get_all_nodes()}
 
 
 @router.post("/cluster/register")
 async def register_node(req: NodeRegistrationRequest, db=Depends(get_db_session)):
     """Register a new node in the cluster."""
-    if raft_node is None:
+    if raft_module.node is None:
         raise HTTPException(status_code=503, detail="Raft node not initialized")
     
-    cluster_mgr = ClusterStateManager(db, raft_node.node_id)
+    cluster_mgr = ClusterStateManager(db, raft_module.node.node_id)
     cluster_mgr.register_node(req.node_id, req.address)
     db.commit()
     
@@ -148,13 +155,23 @@ async def get_leader(db=Depends(get_db_session)):
             "is_current_node": True
         }
     
-    if raft_module.node.get_leader_id():
-        cluster_mgr = ClusterStateManager(db, raft_module.node.node_id)
-        leader = cluster_mgr.get_node(raft_module.node.get_leader_id())
-        if leader:
+    leader_id = raft_module.node.get_leader_id()
+    if leader_id:
+        try:
+            cluster_mgr = ClusterStateManager(db, raft_module.node.node_id)
+            leader = cluster_mgr.get_node(leader_id)
+            if leader:
+                return {
+                    "leader_id": leader["node_id"],
+                    "address": leader["address"],
+                    "is_current_node": False
+                }
+        except Exception as e:
+            logger.warning(f"Database error getting leader info: {e}")
+            # Fallback: return what we know from Raft
             return {
-                "leader_id": leader["node_id"],
-                "address": leader["address"],
+                "leader_id": leader_id,
+                "address": f"http://{leader_id}:8000",
                 "is_current_node": False
             }
     

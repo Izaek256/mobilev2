@@ -6,7 +6,7 @@ from typing import Dict, Any, Optional, Tuple
 from uuid import uuid4
 from datetime import datetime
 
-from src.infrastructure.consensus.raft_node import RaftNode, node as raft_node
+from src.infrastructure.consensus.raft_node import RaftNode
 
 logger = logging.getLogger(__name__)
 
