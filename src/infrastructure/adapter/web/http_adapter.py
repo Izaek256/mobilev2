@@ -4,8 +4,12 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 
-from src.infrastructure.adapter.web.routes import health, transactions
+from src.infrastructure.adapter.web.routes import health, transactions, cluster, accounts
 from src.infrastructure.adapter.web.dto import ErrorResponse
+import os
+import asyncio
+from src.infrastructure.consensus.raft_node import RaftNode
+import src.infrastructure.consensus.raft_node as raft_module
 
 
 def create_app() -> FastAPI:
@@ -23,6 +27,17 @@ def create_app() -> FastAPI:
     # Include routers
     app.include_router(health.router)
     app.include_router(transactions.router)
+    app.include_router(cluster.router)
+    app.include_router(accounts.router)
+    
+    @app.on_event("startup")
+    async def startup_event():
+        node_id = os.environ.get("NODE_ID", "node-1")
+        peers_str = os.environ.get("PEERS", "")
+        peers = [p.strip() for p in peers_str.split(",")] if peers_str else []
+        
+        raft_module.node = RaftNode(node_id, peers)
+        asyncio.create_task(raft_module.node.start())
     
     # Exception handlers
     @app.exception_handler(RequestValidationError)

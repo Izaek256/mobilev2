@@ -11,7 +11,9 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from src.infrastructure.config.database import SessionLocal, init_db, engine, Base
-from src.infrastructure.adapter.persistence.sqlalchemy_models import AccountModel
+from src.infrastructure.adapter.persistence.sqlalchemy_models import AccountModel, EventLogModel
+from src.domain.model.event import AccountCreatedEvent
+from src.infrastructure.adapter.persistence.event_store import EventStore
 
 # ── Seed data ──────────────────────────────────────────────────────────────────
 
@@ -56,25 +58,22 @@ def run():
     db = SessionLocal()
     try:
         created = 0
-        skipped = 0
+        event_store = EventStore(db)
+        
         for data in ACCOUNTS:
-            existing = db.query(AccountModel).filter_by(account_id=data["account_id"]).first()
+            existing = db.query(EventLogModel).filter_by(aggregate_id=data["account_id"]).first()
             if existing:
                 print(f"  [skip]  {data['owner_id']:8s}  {data['account_id']}  (already exists)")
                 skipped += 1
                 continue
 
-            acct = AccountModel(
+            event = AccountCreatedEvent(
                 account_id=data["account_id"],
                 owner_id=data["owner_id"],
-                balance=data["balance"],
                 currency=data["currency"],
-                status=data["status"],
-                version=0,
-                created_at=datetime.utcnow(),
-                updated_at=datetime.utcnow(),
+                initial_balance=str(data["balance"])
             )
-            db.add(acct)
+            event_store.save_event(event, data["account_id"])
             created += 1
             print(f"  [add]   {data['owner_id']:8s}  {data['account_id']}")
 

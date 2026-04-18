@@ -12,6 +12,7 @@ from sqlalchemy import (
     ForeignKey,
     UniqueConstraint,
     Index,
+    Boolean,
 )
 from sqlalchemy.types import TypeDecorator
 import uuid as uuid_module
@@ -116,3 +117,96 @@ class LedgerEntryModel(Base):
             f"<LedgerEntryModel(id={self.entry_id}, transaction={self.transaction_id}, "
             f"account={self.account_id}, type={self.entry_type}, amount={self.amount})>"
         )
+
+
+class EventLogModel(Base):
+    """SQLAlchemy model for Event Log (Event Sourcing)."""
+    
+    __tablename__ = "event_log"
+    
+    log_index = Column(Integer, primary_key=True, autoincrement=True)
+    event_id = Column(String(50), nullable=False, unique=True, index=True)
+    aggregate_id = Column(String(50), nullable=False, index=True) # E.g., account_id or transaction_id
+    event_type = Column(String(100), nullable=False)
+    payload = Column(String, nullable=False) # JSON payload
+    timestamp = Column(DateTime, nullable=False, default=datetime.utcnow)
+    
+    __table_args__ = (
+        Index("idx_event_log_aggregate", "aggregate_id"),
+    )
+    
+    def __repr__(self) -> str:
+        return f"<EventLogModel(index={self.log_index}, type={self.event_type}, aggregate={self.aggregate_id})>"
+
+
+class RaftLogModel(Base):
+    """SQLAlchemy model for Raft Log (Write-Ahead Log)."""
+    
+    __tablename__ = "raft_log"
+    
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    node_id = Column(String(50), nullable=False, index=True)
+    term = Column(Integer, nullable=False)
+    log_index = Column(Integer, nullable=False)
+    entry_id = Column(String(100), nullable=False, unique=True)
+    payload = Column(String, nullable=False)  # JSON payload
+    applied = Column(Integer, nullable=False, default=0)  # Boolean (0/1)
+    timestamp = Column(DateTime, nullable=False, default=datetime.utcnow)
+    applied_at = Column(DateTime, nullable=True)
+    
+    __table_args__ = (
+        UniqueConstraint("node_id", "log_index", name="uq_raft_node_index"),
+        Index("idx_raft_log_node", "node_id"),
+        Index("idx_raft_log_term", "term"),
+        Index("idx_raft_log_applied", "applied"),
+    )
+    
+    def __repr__(self) -> str:
+        return f"<RaftLogModel(node={self.node_id}, term={self.term}, index={self.log_index}, applied={self.applied})>"
+
+
+class ClusterStateModel(Base):
+    """SQLAlchemy model for Cluster State (peer metadata)."""
+    
+    __tablename__ = "cluster_state"
+    
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    node_id = Column(String(50), nullable=False, unique=True, index=True)
+    address = Column(String(255), nullable=False)  # e.g., "http://node-2:8000"
+    role = Column(String(20), nullable=False, default="follower")  # leader, follower, candidate
+    term = Column(Integer, nullable=False, default=0)
+    last_heartbeat = Column(DateTime, nullable=True)
+    status = Column(String(20), nullable=False, default="unknown")  # healthy, unhealthy, unknown
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    __table_args__ = (
+        Index("idx_cluster_state_role", "role"),
+        Index("idx_cluster_state_status", "status"),
+    )
+    
+    def __repr__(self) -> str:
+        return f"<ClusterStateModel(node={self.node_id}, role={self.role}, status={self.status})>"
+
+
+class IdempotencyKeyModel(Base):
+    """SQLAlchemy model for tracking idempotency keys across the cluster."""
+    
+    __tablename__ = "idempotency_keys"
+    
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    idempotency_key = Column(String(255), nullable=False, unique=True, index=True)
+    transaction_id = Column(String(100), nullable=False)
+    status = Column(String(20), nullable=False)  # pending, completed, failed
+    result = Column(String, nullable=True)  # JSON result
+    node_id = Column(String(50), nullable=False)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    completed_at = Column(DateTime, nullable=True)
+    
+    __table_args__ = (
+        Index("idx_idempotency_keys_transaction", "transaction_id"),
+        Index("idx_idempotency_keys_status", "status"),
+    )
+    
+    def __repr__(self) -> str:
+        return f"<IdempotencyKeyModel(key={self.idempotency_key}, status={self.status})>"
+
